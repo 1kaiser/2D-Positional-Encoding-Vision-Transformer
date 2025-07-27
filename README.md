@@ -1,4 +1,5 @@
 # 2D Positional Encodings for Vision Transformers (ViT)
+<a href="https://colab.research.google.com/github/1kaiser/Media-Segment-Depth-MLP/blob/main/2D_Positional_Encoding_Vision_Transformer.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 ### Overview
 This repository explores various 2D positional encoding strategies for Vision Transformers (ViTs), including:
 - **No Position**
