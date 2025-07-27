@@ -69,6 +69,64 @@ Test set accuracy when ViT is trained using different positional Encoding.
 </table>
 <br>
 
+```ascii
+=== CIFAR10 Test Accuracy Comparison ===
+
+NONE            |████████████████████████▌                   | 49.23%
+LEARN           |███████████████████████████                 | 54.14%
+SINUSOIDAL      |███████████████████████████▍                | 54.76%
+RELATIVE        |█████████████████████████▎                  | 50.53%
+ROPE            |█████████████████████████████               | 57.93% ⭐
+STRING_CAYLEY   |████████████████████████████▋               | 57.30%
+STRING_CIRCULANT|███████████████████████████▉                | 55.73%
+
+    0%    10%    20%    30%    40%    50%    60%    70%    80%
+
+
+=== CIFAR100 Test Accuracy Comparison ===
+
+NONE            |██████████▌                                 | 21.11%
+LEARN           |████████████▏                               | 24.32%
+SINUSOIDAL      |████████████▌                               | 25.05%
+RELATIVE        |██████████▋                                 | 21.39%
+ROPE            |████████████▊                               | 25.67%
+STRING_CAYLEY   |█████████████                               | 25.96% ⭐
+STRING_CIRCULANT|████████████▏                               | 24.30%
+
+    0%    10%    20%    30%    40%    50%    60%    70%    80%
+
+
+=== Summary Statistics ===
+
+Method            CIFAR10    CIFAR100    Average
+-------------------------------------------------
+NONE              49.23%     21.11%      35.17%
+LEARN             54.14%     24.32%      39.23%
+SINUSOIDAL        54.76%     25.05%      39.91%
+RELATIVE          50.53%     21.39%      35.96%
+ROPE              57.93%     25.67%      41.80%
+STRING_CAYLEY     57.30%     25.96%      41.63% ⭐ Best Overall
+STRING_CIRCULANT  55.73%     24.30%      40.02%
+
+📊 Key Findings:
+- RoPE performs best on CIFAR10 (57.93%)
+- STRING-Cayley performs best on CIFAR100 (25.96%)
+- STRING-Cayley has the best average performance (41.63%)
+- All position encoding methods outperform no encoding (NONE)
+- STRING variants show competitive performance with established methods
+```
+
+```ascii
+CIFAR10 Results (5 epochs):
+NONE: 49.2% | LEARN: 54.1% | SINUSOIDAL: 54.8% | RELATIVE: 50.5%
+ROPE: 57.9% ⭐ | STRING-CAYLEY: 57.3% | STRING-CIRCULANT: 55.7%
+
+CIFAR100 Results (5 epochs):
+NONE: 21.1% | LEARN: 24.3% | SINUSOIDAL: 25.1% | RELATIVE: 21.4%
+ROPE: 25.7% | STRING-CAYLEY: 26.0% ⭐ | STRING-CIRCULANT: 24.3%
+```
+
+
 ## Splitting X and Y Axes into 1D Positional Encodings
 Instead of flattening image patches directly, we encode spatial information separately for the x and y axes:
 - X-axis encoding applies 1D positional encoding to horizontal sequences.
