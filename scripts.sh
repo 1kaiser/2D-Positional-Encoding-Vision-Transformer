@@ -1,4 +1,3 @@
-%%writefile scripts.sh
 #!/bin/bash
 
 echo "=== 2D Positional Embeddings for Vision Transformer (JAX Conversion) ==="
