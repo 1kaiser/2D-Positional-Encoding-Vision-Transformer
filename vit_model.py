@@ -1,10 +1,15 @@
-import torch
-import torch.nn as nn
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+# Import converted positional encoding modules
 from positional_encodings.pos_embed_none import EmbedLayerWithNone
 from positional_encodings.pos_embed_learn import EmbedLayerWithLearn
 from positional_encodings.pos_embed_sinusoidal import EmbedLayerWithSinusoidal
 from positional_encodings.pos_embed_relative import SelfAttentionWithRelative
 from positional_encodings.pos_embed_rope import SelfAttentionWithRope
+from positional_encodings.pos_embed_string import SelfAttentionWithString
 
 
 # B -> Batch Size
@@ -23,121 +28,243 @@ from positional_encodings.pos_embed_rope import SelfAttentionWithRope
 
 
 class OriginalSelfAttention(nn.Module):
-    def __init__(self, embed_dim, n_attention_heads):
-        super().__init__()
-        self.embed_dim         = embed_dim
-        self.n_attention_heads = n_attention_heads
-        self.head_embed_dim    = embed_dim // n_attention_heads
+    """
+    Original Self-attention module without positional encoding modifications.
+    Equivalent to the original PyTorch OriginalSelfAttention.
+    """
+    embed_dim: int
+    n_attention_heads: int
 
-        self.queries           = nn.Linear(self.embed_dim, self.head_embed_dim * self.n_attention_heads)   # Queries projection
-        self.keys              = nn.Linear(self.embed_dim, self.head_embed_dim * self.n_attention_heads)   # Keys projection
-        self.values            = nn.Linear(self.embed_dim, self.head_embed_dim * self.n_attention_heads)   # Values projection
-        self.out_projection    = nn.Linear(self.head_embed_dim * self.n_attention_heads, self.embed_dim)   # Out projection
+    def setup(self):
+        self.head_embed_dim = self.embed_dim // self.n_attention_heads
+        if self.head_embed_dim * self.n_attention_heads != self.embed_dim:
+            raise ValueError("embed_dim must be divisible by n_attention_heads")
 
-    def forward(self, x):
-        b, s, e = x.shape  # Note: In case of self-attention Q, K and V are all equal to S
+        # Linear projections for Q, K, V
+        self.queries = nn.Dense(features=self.embed_dim, use_bias=False, name='queries')
+        self.keys = nn.Dense(features=self.embed_dim, use_bias=False, name='keys')
+        self.values = nn.Dense(features=self.embed_dim, use_bias=False, name='values')
+        self.out_projection = nn.Dense(features=self.embed_dim, name='out_projection')
 
-        xq = self.queries(x).reshape(b, s, self.n_attention_heads, self.head_embed_dim)     # B, Q, E      ->  B, Q, (H*HE)  ->  B, Q, H, HE
-        xq = xq.permute(0, 2, 1, 3)                                                         # B, Q, H, HE  ->  B, H, Q, HE
-        xk = self.keys(x).reshape(b, s, self.n_attention_heads, self.head_embed_dim)        # B, K, E      ->  B, K, (H*HE)  ->  B, K, H, HE
-        xk = xk.permute(0, 2, 1, 3)                                                         # B, K, H, HE  ->  B, H, K, HE
-        xv = self.values(x).reshape(b, s, self.n_attention_heads, self.head_embed_dim)      # B, V, E      ->  B, V, (H*HE)  ->  B, V, H, HE
-        xv = xv.permute(0, 2, 1, 3)                                                         # B, V, H, HE  ->  B, H, V, HE
+    @nn.compact
+    def __call__(self, x):
+        b, s, e = x.shape # B, S, E
+
+        # Generate Q, K, V
+        # Reshape and transpose to (B, H, S, HE)
+        xq = self.queries(x).reshape(b, s, self.n_attention_heads, self.head_embed_dim)
+        xq = jnp.transpose(xq, (0, 2, 1, 3)) # B, H, S, HE
+        xk = self.keys(x).reshape(b, s, self.n_attention_heads, self.head_embed_dim)
+        xk = jnp.transpose(xk, (0, 2, 1, 3)) # B, H, S, HE
+        xv = self.values(x).reshape(b, s, self.n_attention_heads, self.head_embed_dim)
+        xv = jnp.transpose(xv, (0, 2, 1, 3)) # B, H, S, HE
 
 
         # Compute Attention presoftmax values
-        xk = xk.permute(0, 1, 3, 2)                                                         # B, H, K, HE  ->  B, H, HE, K
-        x_attention = torch.matmul(xq, xk)                                                  # B, H, Q, HE  *   B, H, HE, K   ->  B, H, Q, K    (Matmul tutorial eg: A, B, C, D  *  A, B, E, F  ->  A, B, C, F   if D==E)
+        xk_t = jnp.transpose(xk, (0, 1, 3, 2)) # B, H, HE, S
+        x_attention = jnp.matmul(xq, xk_t)      # B, H, S, S
 
-        x_attention /= float(self.head_embed_dim) ** 0.5                                    # Scale presoftmax values for stability
+        x_attention = x_attention / (self.head_embed_dim ** 0.5) # Scale
 
-        x_attention = torch.softmax(x_attention, dim=-1)                                    # Compute Attention Matrix
+        x_attention = jax.nn.softmax(x_attention, axis=-1) # Compute Attention Matrix
 
-        x = torch.matmul(x_attention, xv)                                                   # B, H, Q, K  *  B, H, V, HE  ->  B, H, Q, HE     Compute Attention product with Values
+        x = jnp.matmul(x_attention, xv) # B, H, S, HE
 
-        # Format the output
-        x = x.permute(0, 2, 1, 3)                                                           # B, H, Q, HE -> B, Q, H, HE
-        x = x.reshape(b, s, e)                                                              # B, Q, H, HE -> B, Q, (H*HE)
+        # Reshape and project output
+        x = jnp.transpose(x, (0, 2, 1, 3)) # B, S, H, HE
+        x = jnp.reshape(x, (b, s, e))      # B, S, E
 
-        x = self.out_projection(x)                                                          # B, Q,(H*HE) -> B, Q, E
+        x = self.out_projection(x)         # B, S, E
         return x
 
 
 class Encoder(nn.Module):
-    def __init__(self, embed_dim, n_attention_heads, forward_mul, seq_len, dropout=0.0, pos_embed='learn', max_relative_distance=2):
-        super().__init__()
-        self.norm1      = nn.LayerNorm(embed_dim)
-        self.dropout1   = nn.Dropout(dropout)
+    """
+    Transformer Encoder block.
+    Equivalent to the original PyTorch Encoder.
+    """
+    embed_dim: int
+    n_attention_heads: int
+    forward_mul: int
+    seq_len: int
+    dropout_rate: float = 0.0
+    pos_embed: str = 'learn'
+    max_relative_distance: int = 2
+    string_type: str = 'cayley'
 
-        if pos_embed == 'relative':
-            self.attention = SelfAttentionWithRelative(embed_dim, n_attention_heads, seq_len=seq_len, max_relative_dist=max_relative_distance)
-        elif pos_embed == 'rope':
-            self.attention = SelfAttentionWithRope(embed_dim, n_attention_heads, seq_len=seq_len)
-        else:
-            self.attention = OriginalSelfAttention(embed_dim, n_attention_heads)
+    @nn.compact
+    def __call__(self, x, train: bool):
+        # Layer Normalization
+        norm1_out = nn.LayerNorm(name='norm1')(x)
 
-        self.norm2      = nn.LayerNorm(embed_dim)
-        self.fc1        = nn.Linear(embed_dim, embed_dim * forward_mul)
-        self.activation = nn.GELU()
-        self.fc2        = nn.Linear(embed_dim * forward_mul, embed_dim)
-        self.dropout2   = nn.Dropout(dropout)
+        # Attention
+        if self.pos_embed == 'relative':
+            attention_out = SelfAttentionWithRelative(
+                embed_dim=self.embed_dim,
+                n_attention_heads=self.n_attention_heads,
+                seq_len=self.seq_len,
+                max_relative_dist=self.max_relative_distance,
+                name='attention'
+            )(norm1_out)
+        elif self.pos_embed == 'rope':
+            attention_out = SelfAttentionWithRope(
+                embed_dim=self.embed_dim,
+                n_attention_heads=self.n_attention_heads,
+                seq_len=self.seq_len,
+                name='attention'
+            )(norm1_out)
+        elif self.pos_embed == 'string':
+             attention_out = SelfAttentionWithString(
+                 embed_dim=self.embed_dim,
+                 n_attention_heads=self.n_attention_heads,
+                 seq_len=self.seq_len,
+                 string_type=self.string_type,
+                 name='attention'
+             )(norm1_out)
+        else: # 'none', 'learn', 'sinusoidal' use OriginalSelfAttention
+            attention_out = OriginalSelfAttention(
+                embed_dim=self.embed_dim,
+                n_attention_heads=self.n_attention_heads,
+                name='attention'
+            )(norm1_out)
 
-    def forward(self, x):
-        x = x + self.dropout1(self.attention(self.norm1(x)))                                # Skip connections
-        x = x + self.dropout2(self.fc2(self.activation(self.fc1(self.norm2(x)))))           # Skip connections
+        # Dropout and Skip connection
+        x = x + nn.Dropout(rate=self.dropout_rate, deterministic=not train)(attention_out)
+
+        # Layer Normalization
+        norm2_out = nn.LayerNorm(name='norm2')(x)
+
+        # Feedforward
+        fc1_out = nn.Dense(features=self.embed_dim * self.forward_mul, name='fc1')(norm2_out)
+        activation_out = jax.nn.gelu(fc1_out) # GELU activation
+        fc2_out = nn.Dense(features=self.embed_dim, name='fc2')(activation_out)
+
+        # Dropout and Skip connection
+        x = x + nn.Dropout(rate=self.dropout_rate, deterministic=not train)(fc2_out)
+
         return x
 
 
 class Classifier(nn.Module):
-    def __init__(self, embed_dim, n_classes):
-        super().__init__()
-        self.fc = nn.Linear(embed_dim, n_classes)
+    """
+    Classifier head for Vision Transformer, taking the CLS token embedding.
+    Equivalent to the original PyTorch Classifier.
+    """
+    embed_dim: int
+    n_classes: int
 
-    def forward(self, x):
-        x = x[:, 0, :]              # Get CLS token
-        x = self.fc(x)
-        return x
+    @nn.compact
+    def __call__(self, x):
+        # Get CLS token (first token in the sequence)
+        # Input x shape: (B, S, E)
+        cls_token_embedding = x[:, 0, :] # (B, E)
+
+        # Linear classification layer
+        logits = nn.Dense(features=self.n_classes, name='classifier_head')(cls_token_embedding) # (B, n_classes)
+        return logits
 
 
 class VisionTransformer(nn.Module):
-    def __init__(self, n_channels, embed_dim, n_layers, n_attention_heads, forward_mul, image_size, patch_size, n_classes, dropout=0.1, pos_embed='learn', max_relative_distance=2):
-        super().__init__()
+    """
+    Vision Transformer model.
+    Equivalent to the original PyTorch VisionTransformer.
+    """
+    n_channels: int         # Number of input channels (e.g., 3 for RGB)
+    embed_dim: int          # Embedding dimension
+    n_layers: int           # Number of encoder layers
+    n_attention_heads: int  # Number of attention heads
+    forward_mul: int        # Multiplier for the feedforward hidden dimension
+    image_size: int         # Input image size (assuming square images)
+    patch_size: int         # Size of the image patches (assuming square patches)
+    n_classes: int          # Number of output classes
+    dropout_rate: float = 0.1 # Dropout rate
+    pos_embed: str = 'learn' # Type of positional embedding
+    max_relative_distance: int = 2 # Max relative distance for 'relative' pos embed
+    string_type: str = 'cayley' # Type of STRING implementation
 
-        # 
-        if pos_embed == 'learn':
-            self.embedding = EmbedLayerWithLearn(n_channels, embed_dim, image_size, patch_size, dropout=dropout)
-        elif pos_embed == 'sinusoidal':
-            self.embedding = EmbedLayerWithSinusoidal(n_channels, embed_dim, image_size, patch_size, dropout=dropout)
-        else:
-            self.embedding = EmbedLayerWithNone(n_channels, embed_dim, image_size, patch_size, dropout=dropout)
+    def setup(self):
+        # Calculate sequence length (number of patches + CLS token)
+        n_patches_per_dim = self.image_size // self.patch_size
+        n_patches = n_patches_per_dim * n_patches_per_dim
+        self.seq_len = n_patches + 1
 
-        # 
-        self.encoder    = nn.ModuleList([Encoder(embed_dim, n_attention_heads, forward_mul, 
-                                                 seq_len=(image_size//patch_size)**2+1, 
-                                                 dropout=dropout, 
-                                                 pos_embed=pos_embed, 
-                                                 max_relative_distance=max_relative_distance) for _ in range(n_layers)])
+        # Embedding layer selection
+        # Pass dropout_rate during the __call__ method, not initialization
+        if self.pos_embed == 'learn':
+            self.embedding = EmbedLayerWithLearn(
+                n_channels=self.n_channels,
+                embed_dim=self.embed_dim,
+                image_size=self.image_size,
+                patch_size=self.patch_size,
+                # dropout_rate=self.dropout_rate, # Removed from init
+                name='embedding_layer'
+            )
+        elif self.pos_embed == 'sinusoidal':
+            self.embedding = EmbedLayerWithSinusoidal(
+                n_channels=self.n_channels,
+                embed_dim=self.embed_dim,
+                image_size=self.image_size,
+                patch_size=self.patch_size,
+                # dropout_rate=self.dropout_rate, # Removed from init
+                name='embedding_layer'
+            )
+        else: # 'none', 'relative', 'rope', 'string' use EmbedLayerWithNone for patch + CLS
+             self.embedding = EmbedLayerWithNone(
+                n_channels=self.n_channels,
+                embed_dim=self.embed_dim,
+                image_size=self.image_size,
+                patch_size=self.patch_size,
+                # dropout_rate=self.dropout_rate, # Removed from init
+                name='embedding_layer'
+            )
 
-        self.norm       = nn.LayerNorm(embed_dim)                                       # Final normalization layer after the last block
-        self.classifier = Classifier(embed_dim, n_classes)
+        # Encoder layers
+        # Create a list of Encoder modules
+        self.encoder_layers = [
+            Encoder(
+                embed_dim=self.embed_dim,
+                n_attention_heads=self.n_attention_heads,
+                forward_mul=self.forward_mul,
+                seq_len=self.seq_len,
+                dropout_rate=self.dropout_rate,
+                pos_embed=self.pos_embed,
+                max_relative_distance=self.max_relative_distance,
+                string_type=self.string_type,
+                name=f'encoder_layer_{i}'
+            ) for i in range(self.n_layers)
+        ]
 
-        self.apply(vit_init_weights)                                                    # Weight initalization
+        # Final normalization layer after the last block
+        self.norm = nn.LayerNorm(name='final_norm')
 
-    def forward(self, x):
-        x = self.embedding(x)
-        for block in self.encoder:
-            x = block(x)
+        # Classifier head
+        self.classifier = Classifier(
+            embed_dim=self.embed_dim,
+            n_classes=self.n_classes,
+            name='classifier_head'
+        )
+
+    @nn.compact
+    def __call__(self, x, train: bool):
+        # x shape: (B, H, W, C) - JAX/Flax typically uses channel last for images
+
+        # Patch and Positional Embedding
+        # Pass dropout_rate here
+        x = self.embedding(x, train=train, dropout_rate=self.dropout_rate)
+
+        # Encoder blocks
+        for encoder_layer in self.encoder_layers:
+            x = encoder_layer(x, train=train) # Dropout is handled inside Encoder
+
+        # Final normalization
         x = self.norm(x)
-        x = self.classifier(x)
-        return x
 
+        # Classification head
+        # Input shape: (B, S, E), output shape: (B, n_classes)
+        logits = self.classifier(x)
 
-def vit_init_weights(m): 
-    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-        nn.init.trunc_normal_(m.weight, mean=0.0, std=0.02)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
+        return logits
 
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.constant_(m.weight, 1)
-        nn.init.constant_(m.bias, 0)
+# Note: JAX/Flax handle weight initialization within the Linen modules
+# using initializers specified in the param definitions.
+# The vit_init_weights function from PyTorch is not needed here.
