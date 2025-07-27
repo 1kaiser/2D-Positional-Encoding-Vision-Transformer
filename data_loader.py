@@ -1,79 +1,79 @@
-import torch
-from torchvision import datasets, transforms
-import os
+import tensorflow as tf
+import tensorflow_datasets as tfds
+import numpy as np
+import jax
+import jax.numpy as jnp
 
+def preprocess_image(image, label, image_size, num_classes):
+    """Preprocesses the image and converts label to one-hot encoding."""
+    image = tf.image.resize(image, [image_size, image_size])
+    image = tf.cast(image, tf.float32) / 255.0
+    label = tf.one_hot(label, num_classes)
+    return image, label
+
+def create_dataset(dataset_name, split, image_size, num_classes, batch_size, shuffle=True, shuffle_buffer_size=10000):
+    """Loads and preprocesses a dataset using TensorFlow Datasets."""
+    ds = tfds.load(dataset_name, split=split, as_supervised=True)
+
+    ds = ds.map(lambda img, label: preprocess_image(img, label, image_size, num_classes))
+
+    if shuffle:
+        ds = ds.shuffle(shuffle_buffer_size)
+
+    ds = ds.batch(batch_size)
+    ds = ds.prefetch(tf.data.AUTOTUNE)
+
+    return ds
 
 def get_loader(args):
-    if args.dataset == 'fashionmnist':
-        train_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]),
-                                            transforms.RandomCrop(args.image_size, padding=2), 
-                                            transforms.RandomHorizontalFlip(),
-                                            transforms.Grayscale(3),
-                                            transforms.ToTensor(), 
-                                            transforms.Normalize([0.5], [0.5])])
-        train = datasets.FashionMNIST(os.path.join(args.data_path, args.dataset), train=True, download=True, transform=train_transform)
+    """
+    Loads CIFAR10 or CIFAR100 dataset using TensorFlow Datasets
+    and provides iterators for JAX compatibility.
+    """
+    train_ds = create_dataset(
+        args.dataset,
+        split='train',
+        image_size=args.image_size,
+        num_classes=args.n_classes,
+        batch_size=args.batch_size,
+        shuffle=True
+    )
 
-        test_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]), 
-                                            transforms.ToTensor(), 
-                                            transforms.Grayscale(3),
-                                            transforms.Normalize([0.5], [0.5])])
-        test = datasets.FashionMNIST(os.path.join(args.data_path, args.dataset), train=False, download=True, transform=test_transform)
+    test_ds = create_dataset(
+        args.dataset,
+        split='test',
+        image_size=args.image_size,
+        num_classes=args.n_classes,
+        batch_size=args.batch_size,
+        shuffle=False
+    )
 
-    elif args.dataset == 'svhn':
-        train_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]),
-                                            transforms.RandomCrop(args.image_size, padding=2), 
-                                            transforms.ToTensor(), 
-                                            transforms.Normalize([0.4376821, 0.4437697, 0.47280442], [0.19803012, 0.20101562, 0.19703614])])
-        train = datasets.SVHN(os.path.join(args.data_path, args.dataset), split='train', download=True, transform=train_transform)
-
-        test_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]), 
-                                             transforms.ToTensor(), 
-                                             transforms.Normalize([0.4376821, 0.4437697, 0.47280442], [0.19803012, 0.20101562, 0.19703614])])
-        test = datasets.SVHN(os.path.join(args.data_path, args.dataset), split='test', download=True, transform=test_transform)
-
-    elif args.dataset == 'cifar10':
-        train_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]),
-                                            transforms.RandomCrop(args.image_size, padding=4), 
-                                            transforms.RandomHorizontalFlip(),
-                                            transforms.RandAugment(),  # RandAugment augmentation for strong regularization
-                                            transforms.ToTensor(), 
-                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
-        train = datasets.CIFAR10(os.path.join(args.data_path, args.dataset), train=True, download=True, transform=train_transform)
-
-        test_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]), 
-                                             transforms.ToTensor(), 
-                                             transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
-        test = datasets.CIFAR10(os.path.join(args.data_path, args.dataset), train=False, download=True, transform=test_transform)
-
-    elif args.dataset == 'cifar100':
-        train_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]),
-                                            transforms.RandomCrop(args.image_size, padding=4), 
-                                            transforms.RandomHorizontalFlip(),
-                                            transforms.RandAugment(),  # RandAugment augmentation for strong regularization
-                                            transforms.ToTensor(), 
-                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
-        train = datasets.CIFAR100(os.path.join(args.data_path, args.dataset), train=True, download=True, transform=train_transform)
-
-        test_transform = transforms.Compose([transforms.Resize([args.image_size, args.image_size]), 
-                                             transforms.ToTensor(), 
-                                             transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
-        test = datasets.CIFAR100(os.path.join(args.data_path, args.dataset), train=False, download=True, transform=test_transform)
-
-    else:
-        print("Unknown dataset")
-        exit(0)
-
-    # Define dataloaders
-    train_loader = torch.utils.data.DataLoader(dataset=train,
-                                               batch_size=args.batch_size,
-                                               shuffle=True,
-                                               num_workers=args.n_workers,
-                                               drop_last=True)
-
-    test_loader = torch.utils.data.DataLoader(dataset=test,
-                                              batch_size=args.batch_size,
-                                              shuffle=False,
-                                              num_workers=args.n_workers,
-                                              drop_last=False)
+    # Convert TensorFlow datasets to NumPy iterators for JAX compatibility
+    train_loader = tfds.as_numpy(train_ds)
+    test_loader = tfds.as_numpy(test_ds)
 
     return train_loader, test_loader
+
+# Example usage (for testing the data loader)
+# if __name__ == '__main__':
+#     class Args:
+#         def __init__(self):
+#             self.dataset = 'cifar10'
+#             self.image_size = 32
+#             self.n_classes = 10
+#             self.batch_size = 128
+
+#     args = Args()
+#     train_loader, test_loader = get_loader(args)
+
+#     print("Testing train loader:")
+#     for images, labels in train_loader:
+#         print(f"Batch shape (images): {images.shape}, Batch shape (labels): {labels.shape}")
+#         print(f"Image dtype: {images.dtype}, Label dtype: {labels.dtype}")
+#         break # Process only one batch
+
+#     print("\nTesting test loader:")
+#     for images, labels in test_loader:
+#         print(f"Batch shape (images): {images.shape}, Batch shape (labels): {labels.shape}")
+#         print(f"Image dtype: {images.dtype}, Label dtype: {labels.dtype}")
+#         break # Process only one batch
