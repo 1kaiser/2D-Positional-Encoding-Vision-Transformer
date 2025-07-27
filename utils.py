@@ -1,38 +1,25 @@
-import torch
+import jax
+import jax.numpy as jnp
+import numpy as np
 
-# IH -> Image Height
-# IW -> Image Width
-# P -> Patch Size
-# N_ -> Number of Patches in 1 dimension = IH/P = IW/P
-# N -> Number of Patches = IH/P * IW/P
-
-
-# X-axis specific values
-def get_x_positions(n_patches, start_idx=0):
-    n_patches_ = int(n_patches ** 0.5)                                    # Number of patches along 1 dimension
-
-    x_positions = torch.arange(start_idx, n_patches_ + start_idx)         # N_
-    x_positions = x_positions.unsqueeze(0)                                # 1, N_
-    x_positions = torch.repeat_interleave(x_positions, n_patches_, 0)     # N_ , N_                         Matrix to replicate positions of patches on x-axis
-    x_positions = x_positions.reshape(-1)                                 # N_ , N_  ->  N_ ** 2  =  N
-
-    return x_positions
-
-
-# Y-axis specific values
-def get_y_positions(n_patches, start_idx=0):
-    n_patches_ = int(n_patches ** 0.5)                                    # Number of patches along 1 dimension
-
-    y_positions = torch.arange(start_idx, n_patches_+start_idx)           # N_
-    y_positions = torch.repeat_interleave(y_positions, n_patches_, 0)     # N_ , N_  ->  N_ ** 2  =  N                  Matrix to replicate positions of patches on y-axis
-
-    return y_positions
-
-
-# Print arguments
 def print_args(args):
-    for k in dict(sorted(vars(args).items())).items():
-        print(k)
-    print()
+    """Prints the arguments."""
+    print("\n--- Arguments ---")
+    for arg in vars(args):
+        print(f"('{arg}', {getattr(args, arg)})")
+    print("-----------------\n")
 
+# Add the positional helper functions back, using JAX/NumPy
+def get_x_positions(n_patches_per_dim):
+    """Generates x positions for a square grid using JAX/NumPy."""
+    x_pos = jnp.arange(n_patches_per_dim)
+    x_pos = jnp.repeat(x_pos, n_patches_per_dim)
+    # Add position for CLS token (position 0)
+    return jnp.concatenate([jnp.array([0]), x_pos + 1]) # Start patch positions from 1
 
+def get_y_positions(n_patches_per_dim):
+    """Generates y positions for a square grid using JAX/NumPy."""
+    y_pos = jnp.arange(n_patches_per_dim)
+    y_pos = jnp.tile(y_pos, n_patches_per_dim)
+    # Add position for CLS token (position 0)
+    return jnp.concatenate([jnp.array([0]), y_pos + 1]) # Start patch positions from 1
