@@ -73,58 +73,56 @@ Test set accuracy when ViT is trained using different positional Encoding.
 ```ascii
 === CIFAR10 Test Accuracy Comparison ===
 
-NONE            |████████████████████████▌                   | 49.23%
-LEARN           |███████████████████████████                 | 54.14%
-SINUSOIDAL      |███████████████████████████▍                | 54.76%
-RELATIVE        |█████████████████████████▎                  | 50.53%
-ROPE            |█████████████████████████████               | 57.93% ⭐
-STRING_CAYLEY   |████████████████████████████▋               | 57.30%
-STRING_CIRCULANT|███████████████████████████▉                | 55.73%
+NONE                 |████████████████████████▌                   | 49.68%
+LEARN                |███████████████████████████▍                | 53.81%
+SINUSOIDAL           |███████████████████████████▊                | 54.35%
+RELATIVE             |█████████████████████████                   | 50.15%
+ROPE                 |████████████████████████████▊               | 55.81%
+UNIFORM_ROPE         |████████████████████████████▋               | 55.72%
+STRING_CAYLEY        |█████████████████████████████▏              | 56.15% 🥈
+STRING_CIRCULANT     |█████████████████████████████▎              | 56.25% 🥇
+STRING3D_CAYLEY      |█████████████████████████████               | 56.00% 🥉
 
     0%    10%    20%    30%    40%    50%    60%    70%    80%
 
 
 === CIFAR100 Test Accuracy Comparison ===
 
-NONE            |██████████▌                                 | 21.11%
-LEARN           |████████████▏                               | 24.32%
-SINUSOIDAL      |████████████▌                               | 25.05%
-RELATIVE        |██████████▋                                 | 21.39%
-ROPE            |████████████▊                               | 25.67%
-STRING_CAYLEY   |█████████████                               | 25.96% ⭐
-STRING_CIRCULANT|████████████▏                               | 24.30%
+NONE                 |██████████▊                                 | 21.04%
+LEARN                |█████████████                               | 24.73%
+SINUSOIDAL           |████████████                                | 24.40%
+RELATIVE             |██████████▋                                 | 20.95%
+ROPE                 |█████████████▎                              | 24.95%
+UNIFORM_ROPE         |█████████████▊                              | 25.66% 🥉
+STRING_CAYLEY        |██████████████                              | 26.01% 🥈
+STRING_CIRCULANT     |███████████▊                                | 23.71%
+STRING3D_CAYLEY      |██████████████▏                             | 26.14% 🥇
 
     0%    10%    20%    30%    40%    50%    60%    70%    80%
 
-
+```
+```ascii
 === Summary Statistics ===
 
-Method            CIFAR10    CIFAR100    Average
--------------------------------------------------
-NONE              49.23%     21.11%      35.17%
-LEARN             54.14%     24.32%      39.23%
-SINUSOIDAL        54.76%     25.05%      39.91%
-RELATIVE          50.53%     21.39%      35.96%
-ROPE              57.93%     25.67%      41.80%
-STRING_CAYLEY     57.30%     25.96%      41.63% ⭐ Best Overall
-STRING_CIRCULANT  55.73%     24.30%      40.02%
+Method               CIFAR10    CIFAR100    Average
+----------------------------------------------------
+NONE                 49.68%     21.04%      35.36%
+LEARN                53.81%     24.73%      39.27%
+SINUSOIDAL           54.35%     24.40%      39.38%
+RELATIVE             50.15%     20.95%      35.55%
+ROPE                 55.81%     24.95%      40.38%
+UNIFORM_ROPE         55.72%     25.66%      40.69% 🥉
+STRING_CAYLEY        56.15%     26.01%      41.08% 🥇 🏆 Best Overall
+STRING_CIRCULANT     56.25%     23.71%      39.98%
+STRING3D_CAYLEY      56.00%     26.14%      41.07% 🥈
 
-📊 Key Findings:
-- RoPE performs best on CIFAR10 (57.93%)
-- STRING-Cayley performs best on CIFAR100 (25.96%)
-- STRING-Cayley has the best average performance (41.63%)
-- All position encoding methods outperform no encoding (NONE)
-- STRING variants show competitive performance with established methods
 ```
-
-```ascii
-CIFAR10 Results (5 epochs):
-NONE: 49.2% | LEARN: 54.1% | SINUSOIDAL: 54.8% | RELATIVE: 50.5%
-ROPE: 57.9% ⭐ | STRING-CAYLEY: 57.3% | STRING-CIRCULANT: 55.7%
-
-CIFAR100 Results (5 epochs):
-NONE: 21.1% | LEARN: 24.3% | SINUSOIDAL: 25.1% | RELATIVE: 21.4%
-ROPE: 25.7% | STRING-CAYLEY: 26.0% ⭐ | STRING-CIRCULANT: 24.3%
+```markdown
+📊 Key Findings:
+- **CIFAR10 Winner:** STRING-Circulant (🥇) showed the best performance.
+- **CIFAR100 Winner:** STRING3D-Cayley (🥇) with depth simulation was the top performer.
+- **Best Overall:** STRING-Cayley (🏆) achieved the highest average accuracy across both datasets.
+- The top three methods by average performance (STRING-Cayley, STRING3D-Cayley, and UNIFORM_ROPE) all use advanced relative positioning schemes.
 ```
 
 
