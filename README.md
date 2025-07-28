@@ -207,4 +207,16 @@ Note: This repo is built upon the following GitHub repo: <a href="https://github
   year={2024},
   publisher={Elsevier}
 }
+@article{schenck2025learning,
+  title={Learning the RoPEs: Better 2D and 3D Position Encodings with STRING},
+  author={Schenck, Connor and Reid, Isaac and Jacob, Mithun George and Bewley, Alex and Ainslie, Joshua and Rendleman, David and Jain, Deepali and Sharma, Mohit and Dubey, Avinava and Wahid, Ayzaan and others},
+  journal={arXiv preprint arXiv:2502.02562},
+  year={2025}
+}
+@misc{xiong2025ndrope
+    author = {Jerry Xiong},
+    title = {On N-dimensional rotary positional embeddings},
+    year = {2025},
+    url = {https://jerryxio.ng/posts/nd-rope/}
+}
 ```
