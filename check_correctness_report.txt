@@ -1,0 +1,27 @@
+Positional Embedding Visualization Report
+======================================
+
+=== LEARN ===
+Shape: (1, 17, 16)
+Similarity matrix (top-left 5x5):
+[[ 0.00956815  0.00217912  0.0017776  -0.00073486  0.00216031]
+ [ 0.00217912  0.00424827 -0.00044695 -0.00194718  0.00024007]
+ [ 0.0017776  -0.00044695  0.00736004  0.00367666  0.00104089]
+ [-0.00073486 -0.00194718  0.00367666  0.005004    0.00201175]
+ [ 0.00216031  0.00024007  0.00104089  0.00201175  0.00434917]]
+
+=== SINUSOIDAL ===
+Encoding is functional/dynamic (applied during attention).
+Verified via runtime tests.
+
+=== RELATIVE ===
+Bias Table Shape: (12,)
+First 5 values: [0. 0. 0. 0. 0.]
+
+=== ROPE ===
+Encoding is functional/dynamic (applied during attention).
+Verified via runtime tests.
+
+=== STRING ===
+Encoding is functional/dynamic (applied during attention).
+Verified via runtime tests.
