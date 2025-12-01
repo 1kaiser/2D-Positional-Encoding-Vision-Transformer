@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/
+outputs/
+model/
+performance_comparison.txt
+check_correctness_report.txt
