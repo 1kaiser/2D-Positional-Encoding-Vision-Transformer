@@ -36,34 +36,53 @@ class StringPositionEmbedding2D(nn.Module):
             raise ValueError(f"Unknown string_type: {self.string_type}")
 
         # --- Non-Learnable Buffers (Constants) ---
-        # Positional indices (0 for CLS, 1 to N for patches)
-        self.positions = jnp.arange(self.seq_len, dtype=jnp.float32)
+        # Removed self.positions as they should be passed in
 
         # Pre-compute base RoPE frequencies for half the dimensions
         self.freqs = 1.0 / (10000 ** (jnp.arange(0, self.embed_dim // 2, dtype=jnp.float32) * 2 / self.embed_dim))
 
-    def _apply_efficient_rope(self, x):
+    def _apply_efficient_rope(self, x, positions):
         """Applies RoPE rotation directly to vectors without creating a large matrix."""
         # x shape: (B, H, S, E)
         # Calculate sin/cos factors for each position
-        angles = jnp.outer(self.positions, self.freqs)  # (S, E/2)
-        cos_vals = jnp.cos(angles)  # (S, E/2)
-        sin_vals = jnp.sin(angles)  # (S, E/2)
+        angles = jnp.outer(positions, self.freqs)  # (S, E//2)
+        cos_vals = jnp.cos(angles)  # (S, E//2)
+        sin_vals = jnp.sin(angles)  # (S, E//2)
 
-        # Repeat to match the full embedding dimension
-        cos_vals = jnp.repeat(cos_vals, 2, axis=-1)  # (S, E)
-        sin_vals = jnp.repeat(sin_vals, 2, axis=-1)  # (S, E)
+        # Repeat to match the full embedding dimension (E//2 * 2)
+        cos_vals = jnp.repeat(cos_vals, 2, axis=-1)  # (S, E//2 * 2)
+        sin_vals = jnp.repeat(sin_vals, 2, axis=-1)  # (S, E//2 * 2)
 
         # Apply the 2D rotation formula: x_rot = x*cos - permute(x)*sin
-        x1, x2 = jnp.split(x, 2, axis=-1)
+        # To handle odd dimensions, we split the part to be rotated.
+        rotate_dim = (self.embed_dim // 2) * 2
+        x_rot = x[..., :rotate_dim]
+
+        # If embed_dim is odd, the last dimension is not rotated
+        if self.embed_dim > rotate_dim:
+            x_pass = x[..., rotate_dim:]
+        else:
+            x_pass = None
+
+        x1, x2 = jnp.split(x_rot, 2, axis=-1)
         x_permuted = jnp.concatenate([-x2, x1], axis=-1)
 
         # Broadcast across batch and head dimensions
-        x_rotated = x * cos_vals[None, None, :, :] + x_permuted * sin_vals[None, None, :, :]
+        # cos_vals is (S, rotate_dim)
+
+        x_rot_out = x_rot * cos_vals[None, None, :, :] + x_permuted * sin_vals[None, None, :, :]
+
+        # Concatenate back
+        if x_pass is not None:
+            # We must concatenate along the last axis
+            x_rotated = jnp.concatenate([x_rot_out, x_pass], axis=-1)
+        else:
+            x_rotated = x_rot_out
+
         return x_rotated
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, positions):
         """Applies STRING positional encoding."""
         # 1. Generate the learnable orthogonal transformation matrix P
         if self.string_type == 'cayley':
@@ -80,10 +99,10 @@ class StringPositionEmbedding2D(nn.Module):
 
         # 2. Apply the learnable transformation P to the input
         # (B, H, S, E) @ (E, E) -> (B, H, S, E)
-        x_transformed = jnp.matmul(x, P.T)
+        x_transformed = jnp.matmul(x, P.T) # This mixes all dimensions including the last odd one
 
         # 3. Apply RoPE rotation efficiently to the transformed input
-        return self._apply_efficient_rope(x_transformed)
+        return self._apply_efficient_rope(x_transformed, positions)
 
 
 class SelfAttentionWithString(nn.Module):
@@ -110,6 +129,29 @@ class SelfAttentionWithString(nn.Module):
         self.string_x = StringPositionEmbedding2D(seq_len=self.seq_len, embed_dim=self.dim_split_x, string_type=self.string_type, name='string_x')
         self.string_y = StringPositionEmbedding2D(seq_len=self.seq_len, embed_dim=self.dim_split_y, string_type=self.string_type, name='string_y')
 
+    def _get_2d_coordinates(self):
+        """Generate 2D patch coordinates (x, y)."""
+        # Ensure we can compute sqrt (seq_len - 1 must be perfect square)
+        # This assumes standard patch grid + CLS token.
+        # If not perfect square, we might need a fallback, but ViT usually enforces this.
+        n_patches_per_dim = int(np.sqrt(self.seq_len - 1))  # Exclude CLS token
+
+        # Generate grid coordinates
+        y_coords, x_coords = jnp.meshgrid(
+            jnp.arange(n_patches_per_dim),
+            jnp.arange(n_patches_per_dim),
+            indexing='ij'
+        )
+
+        x_patch_coords = x_coords.flatten().astype(jnp.float32)
+        y_patch_coords = y_coords.flatten().astype(jnp.float32)
+
+        # Add CLS token coordinates (0, 0) at the beginning
+        x_coords_full = jnp.concatenate([jnp.array([0.0]), x_patch_coords + 1])
+        y_coords_full = jnp.concatenate([jnp.array([0.0]), y_patch_coords + 1])
+
+        return x_coords_full, y_coords_full
+
     @nn.compact
     def __call__(self, x):
         b, s, e = x.shape
@@ -126,11 +168,14 @@ class SelfAttentionWithString(nn.Module):
         xq_x, xq_y = jnp.split(xq, [self.dim_split_x], axis=-1)
         xk_x, xk_y = jnp.split(xk, [self.dim_split_x], axis=-1)
 
+        # Get 2D coordinates
+        x_coords, y_coords = self._get_2d_coordinates()
+
         # Apply STRING positional encoding to each axis
-        xq_x_str = self.string_x(xq_x)
-        xq_y_str = self.string_y(xq_y)
-        xk_x_str = self.string_x(xk_x)
-        xk_y_str = self.string_y(xk_y)
+        xq_x_str = self.string_x(xq_x, x_coords)
+        xq_y_str = self.string_y(xq_y, y_coords)
+        xk_x_str = self.string_x(xk_x, x_coords)
+        xk_y_str = self.string_y(xk_y, y_coords)
 
         # Concatenate the results
         xq = jnp.concatenate([xq_x_str, xq_y_str], axis=-1)
